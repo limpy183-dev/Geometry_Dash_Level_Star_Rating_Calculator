@@ -1,0 +1,9 @@
+# Build output and caches
+build/
+__pycache__/
+.pytest_cache/
+
+# Large local corpus (~4 GB, only needed to retrain; see README)
+data/levels.db
+data/*.log
+data/cache/

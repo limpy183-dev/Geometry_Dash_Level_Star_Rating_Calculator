@@ -1,0 +1,832 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Starmeter — Geometry Dash difficulty calculator</title>
+<meta name="theme-color" content="#0a0830">
+<meta name="description" content="Rate any Geometry Dash level to two decimals, with an honest error range.">
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Cpath d='M16 3l3.6 8.6 9.4.8-7.1 6.2 2.2 9.1L16 22.6 7.9 27.7l2.2-9.1L3 12.4l9.4-.8z' fill='%23ffd23f'/%3E%3C/svg%3E">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Hanken+Grotesk:wght@400;500;600;700&family=JetBrains+Mono:wght@400;600&family=Unbounded:wght@400;600;800&display=swap" rel="stylesheet">
+<style>
+:root {
+  color-scheme: dark;
+  --night: #0a0830; --dusk: #2a1170;
+  --ink: #f1f2ff; --mute: #a6abe4; --dim: #8c92d4;
+  --fill: rgba(12, 9, 52, .8); --edge: rgba(150, 160, 255, .34); --edge-hi: rgba(200, 208, 255, .7);
+  --rc: #6f7cff;                                  /* rating colour, set from the star value */
+  --cube: #3df0a6; --ship: #ff5ca8; --ball: #ff9f43; --ufo: #ffd93d; --wave: #4fc3ff; --robot: #c792ff; --spider: #ff6b6b; --swing: #a3ff5c;
+  --display: "Unbounded", "Arial Black", system-ui, sans-serif;
+  --body: "Hanken Grotesk", system-ui, "Segoe UI", sans-serif;
+  --mono: "JetBrains Mono", ui-monospace, "Cascadia Code", Consolas, monospace;
+  --c: 16px;                                      /* chamfer size */
+}
+* { box-sizing: border-box; }
+html { scroll-behavior: smooth; }
+html, .panel, textarea { scrollbar-width: thin; scrollbar-color: rgba(150, 160, 255, .38) transparent; }
+body {
+  margin: 0; min-height: 100vh; color: var(--ink); font: 400 16px/1.55 var(--body);
+  background:
+    radial-gradient(1100px 560px at 85% -8%, rgba(125, 70, 255, .5), transparent 62%),
+    radial-gradient(900px 520px at -5% 18%, rgba(40, 120, 255, .26), transparent 62%),
+    linear-gradient(180deg, var(--night), #130e4c 55%, #22106a);
+  background-attachment: fixed;
+}
+body::before {                                     /* the 30-unit editor grid */
+  content: ""; position: fixed; inset: 0; pointer-events: none; z-index: 0;
+  background-image: linear-gradient(rgba(150, 160, 255, .07) 1px, transparent 1px), linear-gradient(90deg, rgba(150, 160, 255, .07) 1px, transparent 1px);
+  background-size: 30px 30px; -webkit-mask-image: linear-gradient(#000, transparent 75%); mask-image: linear-gradient(#000, transparent 75%);
+}
+.wrap { position: relative; z-index: 1; max-width: 1120px; margin: 0 auto; padding: 0 20px 80px; overflow-x: clip; }
+#out > *, .grid3 > *, .res > * { min-width: 0; }
+button, input, textarea { font: inherit; color: inherit; }
+button { cursor: pointer; }
+:focus-visible { outline: 2px solid var(--rc); outline-offset: 3px; }
+.sr { position: absolute; width: 1px; height: 1px; overflow: hidden; clip-path: inset(50%); white-space: nowrap; }
+
+/* ---------- chamfered "block" panels ---------- */
+.panel {
+  --ci: calc(var(--c) - .586px);
+  position: relative; isolation: isolate; padding: 22px 24px;
+  background: linear-gradient(135deg, rgba(205, 212, 255, .62), rgba(120, 130, 255, .2) 38%, rgba(135, 145, 255, .34));
+  clip-path: polygon(var(--c) 0, 100% 0, 100% calc(100% - var(--c)), calc(100% - var(--c)) 100%, 0 100%, 0 var(--c));
+}
+.panel::before {
+  content: ""; position: absolute; inset: 1px; z-index: -1; background: linear-gradient(180deg, rgba(22, 17, 80, .93), rgba(10, 8, 44, .94));
+  clip-path: polygon(var(--ci) 0, 100% 0, 100% calc(100% - var(--ci)), calc(100% - var(--ci)) 100%, 0 100%, 0 var(--ci));
+}
+.label { margin: 0 0 14px; font: 700 11.5px/1 var(--body); letter-spacing: .16em; text-transform: uppercase; color: var(--mute); }
+.mono { font-family: var(--mono); font-variant-numeric: tabular-nums; }
+
+/* ---------- top bar ---------- */
+.top { display: flex; align-items: center; justify-content: space-between; padding: 22px 0 8px; }
+.logo { display: flex; align-items: center; gap: 12px; font: 800 17px/1 var(--display); letter-spacing: -.01em; }
+.logo svg { width: 28px; height: 28px; filter: drop-shadow(0 0 10px rgba(255, 210, 63, .6)); }
+.ghost { background: none; border: 1px solid var(--edge); border-radius: 999px; padding: 8px 16px; font-weight: 600; font-size: 14px; color: var(--mute); transition: .2s; }
+.ghost:hover { color: var(--ink); border-color: var(--edge-hi); }
+
+/* ---------- hero / input ---------- */
+.hero { padding: 54px 0 0; position: relative; }
+.eyebrow { margin: 0 0 18px; font: 600 13px/1 var(--mono); letter-spacing: .08em; color: var(--mute); }
+.eyebrow b { color: var(--cube); font-weight: 600; }
+h1 { margin: 0; max-width: 17ch; font: 800 clamp(34px, 5.6vw, 66px)/1.04 var(--display); letter-spacing: -.035em; }
+h1 { text-wrap: balance; }
+h1 em { font-style: normal; display: inline-block; background: linear-gradient(90deg, #ffd93d, #ff5ca8 45%, #8f7bff); -webkit-background-clip: text; background-clip: text; color: transparent; }
+.lede { margin: 20px 0 30px; max-width: 54ch; color: var(--mute); font-size: 17.5px; }
+form.panel { padding: 18px 20px 22px; }
+.tabs { display: flex; flex-wrap: wrap; gap: 6px; margin-bottom: 16px; }
+.tab { background: none; border: 0; border-radius: 8px; padding: 8px 14px; font-weight: 600; font-size: 14px; color: var(--dim); transition: .15s; }
+.tab:hover { color: var(--ink); }
+.tab[aria-selected="true"] { color: var(--ink); background: rgba(150, 160, 255, .16); box-shadow: inset 0 -2px 0 var(--rc); }
+.row { display: flex; gap: 12px; }
+.field { flex: 1; display: flex; align-items: center; gap: 12px; padding: 0 18px; min-height: 60px; background: rgba(4, 3, 30, .7); border: 1px solid var(--edge); border-radius: 10px; transition: .2s; }
+.field:focus-within { border-color: var(--edge-hi); box-shadow: 0 0 0 4px rgba(111, 124, 255, .18); }
+.field span { font: 600 14px var(--mono); color: var(--dim); }
+.field input { flex: 1; min-width: 0; background: none; border: 0; outline: 0; font: 600 22px var(--mono); letter-spacing: .02em; }
+.field input::placeholder, textarea::placeholder { color: #6f75b8; font-weight: 400; }
+.go {
+  --ci: calc(var(--c) - .586px); border: 0; padding: 0 28px; min-height: 60px; font: 700 16px var(--body); color: #0a0830; white-space: nowrap;
+  background: linear-gradient(110deg, #ffd93d, #ff8a5c 55%, #ff5ca8);
+  clip-path: polygon(var(--c) 0, 100% 0, 100% calc(100% - var(--c)), calc(100% - var(--c)) 100%, 0 100%, 0 var(--c)); transition: filter .2s, transform .2s;
+}
+.go:hover:not(:disabled) { filter: brightness(1.1) saturate(1.1); transform: translateY(-1px); }
+.go:disabled { filter: grayscale(.7) brightness(.7); cursor: progress; }
+textarea { width: 100%; min-height: 120px; resize: vertical; padding: 14px 16px; background: rgba(4, 3, 30, .7); border: 1px solid var(--edge); border-radius: 10px; font: 400 13px/1.45 var(--mono); outline: 0; }
+textarea:focus { border-color: var(--edge-hi); }
+.pane[hidden] { display: none; }
+.pane .row + .note, .note { margin: 12px 2px 0; font-size: 13.5px; color: var(--dim); }
+.drop { display: grid; place-items: center; gap: 4px; min-height: 120px; padding: 20px; text-align: center; border: 1.5px dashed var(--edge); border-radius: 10px; color: var(--mute); transition: .2s; cursor: pointer; }
+.drop:hover, .drop.over { border-color: var(--rc); background: rgba(111, 124, 255, .08); }
+.mine { display: grid; gap: 8px; grid-template-columns: repeat(auto-fill, minmax(230px, 1fr)); }
+.mine button { text-align: left; background: rgba(4, 3, 30, .7); border: 1px solid var(--edge); border-radius: 10px; padding: 12px 14px; transition: .15s; }
+.mine button:hover { border-color: var(--edge-hi); background: rgba(111, 124, 255, .12); }
+.mine small { display: block; color: var(--dim); font: 400 12px var(--mono); }
+.picks { display: flex; flex-wrap: wrap; align-items: center; gap: 8px 10px; margin: 18px 2px 0; font-size: 14px; color: var(--dim); }
+.chip { background: rgba(150, 160, 255, .1); border: 1px solid transparent; border-radius: 999px; padding: 5px 13px; font-size: 13.5px; font-weight: 500; color: var(--mute); transition: .15s; }
+.chip:hover { color: var(--ink); border-color: var(--edge-hi); }
+.chip i { font-style: normal; margin-right: 5px; }
+.status { min-height: 24px; margin: 14px 2px 0; font: 500 14px var(--mono); color: var(--mute); }
+.status.err { color: #ff8da1; font-family: var(--body); font-size: 15px; font-weight: 500; }
+.ground {                                           /* a row of silhouette spikes along the horizon */
+  height: 30px; margin: 22px -20px 0; background: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='30' height='30'%3E%3Cpath d='M1 30L15 3l14 27z' fill='%2305031f' stroke='%238a93ff' stroke-opacity='.55' stroke-width='1.2'/%3E%3C/svg%3E") repeat-x bottom;
+  border-bottom: 2px solid rgba(150, 160, 255, .5); animation: rise 1.1s .2s cubic-bezier(.16, 1, .3, 1) both;
+}
+@keyframes rise { from { transform: translateY(100%); opacity: 0; } }
+
+/* ---------- result ---------- */
+#out { margin-top: 28px; display: grid; gap: 18px; }
+#out[hidden] { display: none; }
+.warn { padding: 12px 16px; border-left: 3px solid #ffb73d; background: rgba(255, 183, 61, .08); border-radius: 0 8px 8px 0; font-size: 14.5px; color: #ffd9a0; }
+.res { padding: 26px 28px 30px; }
+.res-top { display: flex; flex-wrap: wrap; justify-content: space-between; gap: 10px 24px; align-items: flex-start; }
+.res h2 { margin: 0; font: 800 clamp(20px, 2.6vw, 28px)/1.15 var(--display); letter-spacing: -.02em; overflow-wrap: anywhere; }
+.res .sub { margin: 8px 0 0; color: var(--dim); font: 400 13.5px var(--mono); }
+.copy { align-self: flex-start; }
+.hero-num { display: flex; flex-wrap: wrap; align-items: center; gap: 6px 36px; margin: 22px 0 6px; }
+.odo-line { display: flex; align-items: center; gap: .12em; font: 800 clamp(50px, 15.5vw, 132px)/1 var(--display); letter-spacing: -.04em; color: var(--rc); }
+.odo-line > svg { width: .56em; height: .56em; margin-right: .06em; fill: var(--rc); filter: drop-shadow(0 0 14px color-mix(in srgb, var(--rc) 70%, transparent)); }
+.odo { display: inline-flex; filter: drop-shadow(0 0 26px color-mix(in srgb, var(--rc) 55%, transparent)); }
+.col { display: inline-block; height: 1em; width: .92em; overflow: hidden; }
+.reel { display: flex; flex-direction: column; transition: transform 1.25s cubic-bezier(.16, 1, .3, 1); }
+.reel.fast { transition-duration: .09s; transition-timing-function: linear; }
+.reel i { display: block; height: 1em; line-height: 1; font-style: normal; text-align: center; }
+.dot { display: inline-block; width: .32em; text-align: center; }
+.facts { display: grid; gap: 10px; }
+.face { display: inline-flex; align-items: center; gap: 10px; font: 700 clamp(18px, 2.2vw, 24px)/1.1 var(--display); letter-spacing: -.02em; color: var(--rc); }
+.conf { display: inline-flex; align-items: center; gap: 8px; font-size: 13.5px; color: var(--mute); }
+.conf::before { content: ""; width: 8px; height: 8px; border-radius: 50%; background: currentColor; box-shadow: 0 0 8px currentColor; }
+.conf.high { color: #6bf08a; } .conf.medium { color: #ffd93d; } .conf.low { color: #ff8da1; }
+.facts p { margin: 0; color: var(--mute); font-size: 15.5px; }
+.facts b { color: var(--ink); font-weight: 600; font-family: var(--mono); }
+.verdict { margin: 18px 0 0; padding: 14px 16px; border-radius: 10px; background: rgba(150, 160, 255, .08); font-size: 15px; color: var(--mute); }
+.verdict b { color: var(--ink); }
+.verdict a { color: var(--ink); text-underline-offset: 3px; white-space: nowrap; }
+.verdict .d { display: inline-block; margin-right: 8px; padding: 2px 9px; border-radius: 999px; font: 600 13px var(--mono); background: rgba(255, 255, 255, .1); color: var(--ink); }
+
+/* measurement ruler */
+.ruler { position: relative; height: 98px; margin: 30px 8px 0; }
+.track { position: absolute; left: 0; right: 0; top: 34px; height: 12px; border-radius: 6px; opacity: .85; }
+.tick { position: absolute; top: 50px; width: 1px; height: 7px; background: rgba(200, 208, 255, .45); }
+.tick.big { height: 12px; background: rgba(220, 226, 255, .8); }
+.tick-l { position: absolute; top: 66px; transform: translateX(-50%); font: 400 11.5px var(--mono); color: var(--dim); }
+.band { position: absolute; top: 28px; height: 24px; border-radius: 4px; background: rgba(255, 255, 255, .22); border: 1px solid rgba(255, 255, 255, .5); transition: left 1.2s cubic-bezier(.16, 1, .3, 1), width 1.2s cubic-bezier(.16, 1, .3, 1); }
+.band.b50 { background: rgba(255, 255, 255, .34); }
+.pin { position: absolute; top: 4px; width: 0; transition: left 1.3s cubic-bezier(.16, 1, .3, 1); }
+.pin::before { content: ""; position: absolute; left: -2px; top: 24px; width: 4px; height: 30px; border-radius: 2px; background: #fff; box-shadow: 0 0 14px var(--rc); }
+.pin span { position: absolute; transform: translateX(-50%); top: -4px; padding: 2px 9px; border-radius: 6px; font: 600 13px var(--mono); color: #0a0830; background: #fff; white-space: nowrap; }
+.pin.comm::before { width: 2px; left: -1px; top: 32px; height: 26px; background: #ffd93d; box-shadow: none; }
+.pin.comm span { top: -4px; background: none; color: #ffd93d; padding: 2px 0; }
+.pin span.L { transform: translateX(calc(-100% + 8px)); } .pin span.R { transform: translateX(-8px); }
+.rleg { display: flex; flex-wrap: wrap; gap: 4px 18px; margin: 4px 8px 0; font-size: 12.5px; color: var(--dim); }
+.rleg i { display: inline-block; width: 10px; height: 10px; margin-right: 6px; border-radius: 2px; vertical-align: -1px; }
+.bands { position: absolute; left: 0; right: 0; top: 84px; font: 600 10px var(--body); letter-spacing: .08em; color: var(--dim); text-transform: uppercase; }
+.bands span { position: absolute; transform: translateX(-50%); white-space: nowrap; }
+.bands .on { color: var(--ink); }
+
+/* spike field */
+.spikes { padding-bottom: 14px; }
+.head { display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 8px; margin-bottom: 8px; }
+.head .label { margin: 0; }
+.seg { display: inline-flex; background: rgba(150, 160, 255, .1); border-radius: 8px; padding: 3px; }
+.seg button { border: 0; background: none; border-radius: 6px; padding: 5px 12px; font-size: 13px; font-weight: 600; color: var(--dim); }
+.seg button[aria-pressed="true"] { background: rgba(150, 160, 255, .26); color: var(--ink); }
+.field-wrap { position: relative; }
+#sf { display: block; width: 100%; height: auto; overflow: visible; }
+#sf .sp { transform-box: fill-box; transform-origin: bottom; animation: pop .7s cubic-bezier(.16, 1, .3, 1) both; animation-delay: calc(var(--i) * 5ms); }
+@keyframes pop { from { transform: scaleY(0); } }
+.tip { position: absolute; z-index: 3; pointer-events: none; padding: 8px 11px; border-radius: 8px; background: rgba(6, 4, 34, .96); border: 1px solid var(--edge); font: 400 12.5px/1.45 var(--mono); white-space: nowrap; transform: translate(-50%, -100%); }
+.tip b { font-weight: 600; }
+.legend { display: flex; flex-wrap: wrap; gap: 6px 16px; margin-top: 10px; font-size: 13px; color: var(--mute); }
+.legend .hard { margin-left: auto; color: var(--ink); font-family: var(--mono); font-size: 12.5px; }
+.legend i { display: inline-block; width: 10px; height: 10px; margin-right: 6px; clip-path: polygon(50% 0, 100% 100%, 0 100%); }
+
+/* physics simulation */
+.phys .cap { margin: 0; font: 400 12.5px var(--mono); color: var(--dim); }
+.phys .tiles4 { display: grid; grid-template-columns: repeat(4, 1fr); gap: 10px; margin: 6px 0 20px; }
+.phys .tiles4 div { padding: 12px 14px; border: 1px solid var(--edge); border-radius: 8px; background: rgba(4, 3, 30, .5); }
+.phys .tiles4 b { display: block; font: 600 22px var(--mono); }
+.phys .tiles4 small { color: var(--dim); font-size: 12.5px; line-height: 1.3; display: block; }
+.phys h4 { margin: 0 0 6px; font: 600 14.5px var(--body); color: var(--ink); }
+.phys .sub2 { margin: 0 0 10px; font-size: 13.5px; color: var(--dim); }
+#rk { display: block; width: 100%; height: auto; overflow: visible; }
+#rk .sp { transform-box: fill-box; transform-origin: bottom; animation: pop .7s cubic-bezier(.16, 1, .3, 1) both; animation-delay: calc(var(--i) * 6ms); }
+.hard-list { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 12px; }
+.hard-list span { padding: 5px 11px; border-radius: 999px; background: rgba(150, 160, 255, .1); font: 400 12.5px var(--mono); color: var(--mute); }
+.hard-list b { font-weight: 600; color: var(--ink); }
+.run { height: 4px; margin: 14px 0 12px; border-radius: 2px; overflow: hidden; background: rgba(150, 160, 255, .14); }
+.run i { display: block; height: 100%; width: 35%; border-radius: 2px; background: linear-gradient(90deg, transparent, var(--rc), transparent); animation: scan 1.6s ease-in-out infinite; }
+@keyframes scan { from { transform: translateX(-100%); } to { transform: translateX(290%); } }
+.engine { display: inline-flex; align-items: center; gap: 7px; font: 600 12.5px var(--mono); color: var(--mute); }
+.engine::before { content: ""; width: 8px; height: 8px; border-radius: 2px; background: var(--cube); box-shadow: 0 0 8px var(--cube); }
+.engine.structure::before { background: var(--dim); box-shadow: none; }
+
+/* follow my game */
+.topbtns { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; justify-content: flex-end; }
+.follow { display: inline-flex; align-items: center; gap: 9px; }
+.follow i { width: 9px; height: 9px; border-radius: 50%; background: var(--dim); }
+.follow[aria-pressed="true"] { color: var(--ink); border-color: var(--edge-hi); background: rgba(111, 124, 255, .14); }
+.follow[aria-pressed="true"] i { background: #ffd93d; }
+.follow[aria-pressed="true"].live i { background: var(--cube); box-shadow: 0 0 10px var(--cube); animation: beat 2s ease-in-out infinite; }
+@keyframes beat { 50% { transform: scale(1.35); } }
+.livebar { margin: 14px 2px 0; padding: 10px 14px; border-radius: 10px; background: rgba(150, 160, 255, .08); border: 1px solid var(--edge); font-size: 14px; color: var(--mute); }
+.livebar b { color: var(--ink); font-weight: 600; }
+.livebar code { font: 400 12.5px var(--mono); color: var(--dim); overflow-wrap: anywhere; }
+.livebar.ok { border-color: rgba(61, 240, 166, .45); }
+
+/* replay viewer */
+.watch { display: inline-flex; align-items: center; gap: 8px; }
+.watch::before { content: ""; border-left: 9px solid currentColor; border-top: 6px solid transparent; border-bottom: 6px solid transparent; }
+#replay { width: min(1040px, calc(100vw - 20px)); }
+#replay .panel { padding: 18px 18px 16px; }
+#replay h3 { margin: 4px 0 4px; }
+#rc { display: block; width: 100%; height: 380px; margin-top: 8px; border-radius: 8px; background: #05031f; border: 1px solid var(--edge); }
+.rctl { display: flex; flex-wrap: wrap; align-items: center; gap: 10px 14px; margin-top: 12px; }
+.rctl input[type=range] { flex: 1; min-width: 160px; accent-color: var(--rc); }
+.rctl .mono { font-size: 13px; color: var(--mute); min-width: 62px; }
+.rhud { display: flex; flex-wrap: wrap; gap: 6px 16px; margin-top: 10px; font: 400 12.5px var(--mono); color: var(--dim); }
+.rhud b { color: var(--ink); font-weight: 600; }
+.rjump { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 10px; }
+
+/* cards */
+.grid3 { display: grid; grid-template-columns: repeat(3, 1fr); gap: 18px; }
+.prof { display: grid; gap: 14px; }
+.prof .r { display: grid; grid-template-columns: 112px 1fr 44px; align-items: center; gap: 12px; font-size: 14px; }
+.prof .t { position: relative; height: 8px; border-radius: 4px; background: rgba(150, 160, 255, .14); }
+.prof .t i { position: absolute; left: 0; top: 0; bottom: 0; border-radius: 4px; background: var(--rc); width: 0; transition: width 1.1s cubic-bezier(.16, 1, .3, 1); }
+.prof .t u { position: absolute; top: -3px; bottom: -3px; width: 1px; background: rgba(220, 226, 255, .3); }
+.prof .v { text-align: right; font: 600 13px var(--mono); color: var(--mute); }
+.stack { display: flex; height: 14px; border-radius: 4px; overflow: hidden; gap: 2px; margin: 4px 0 12px; }
+.stack i { display: block; min-width: 3px; transition: flex-basis 1s cubic-bezier(.16, 1, .3, 1); }
+.stack + .legend { margin: 0 0 20px; }
+.tiles { display: grid; grid-template-columns: repeat(3, 1fr); gap: 8px; }
+.tiles div { padding: 10px 12px; border: 1px solid var(--edge); border-radius: 6px; background: rgba(4, 3, 30, .5); }
+.tiles b { display: block; font: 600 17px var(--mono); }
+.tiles small { color: var(--dim); font-size: 12px; }
+.sim { display: grid; gap: 8px; margin: 0; padding: 0; list-style: none; }
+.sim button { width: 100%; display: grid; grid-template-columns: 12px 1fr auto; align-items: center; gap: 12px; text-align: left; padding: 10px 12px; background: rgba(4, 3, 30, .5); border: 1px solid var(--edge); border-radius: 8px; transition: .15s; }
+.sim button:hover { border-color: var(--edge-hi); background: rgba(111, 124, 255, .1); }
+.sim .dotc { width: 10px; height: 10px; border-radius: 50%; }
+.sim small { display: block; color: var(--dim); font-size: 12px; }
+.sim .n { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-weight: 600; }
+.sim .s { font: 600 15px var(--mono); }
+.note-s { margin: 14px 0 0; font-size: 13px; color: var(--dim); }
+
+/* about dialog */
+dialog { width: min(760px, calc(100vw - 28px)); max-height: 86vh; padding: 0; border: 0; color: var(--ink); background: transparent; overflow: visible; }
+dialog::backdrop { background: rgba(4, 3, 24, .72); backdrop-filter: blur(5px); }
+dialog .panel { max-height: 86vh; overflow: auto; padding: 28px 30px 30px; }
+dialog h3 { margin: 26px 0 8px; font: 700 18px var(--display); letter-spacing: -.02em; }
+dialog h3:first-of-type { margin-top: 6px; }
+dialog p, dialog li { color: var(--mute); font-size: 15.5px; }
+dialog ul { padding-left: 20px; margin: 8px 0; }
+dialog b { color: var(--ink); }
+.metrics { display: grid; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); gap: 10px; margin: 14px 0; }
+.metrics div { padding: 12px 14px; border: 1px solid var(--edge); border-radius: 8px; background: rgba(4, 3, 30, .5); }
+.metrics b { display: block; font: 600 22px var(--mono); }
+.metrics small { color: var(--dim); font-size: 12.5px; }
+.close { position: absolute; right: 18px; top: 16px; }
+.scale { height: 14px; border-radius: 7px; margin: 14px 0 6px; }
+footer { margin-top: 56px; padding-top: 20px; border-top: 1px solid rgba(150, 160, 255, .16); font-size: 13px; color: var(--dim); }
+.toast { position: fixed; left: 50%; bottom: 28px; z-index: 20; transform: translate(-50%, 20px); padding: 10px 18px; border-radius: 999px; background: #fff; color: #0a0830; font-weight: 600; font-size: 14px; opacity: 0; pointer-events: none; transition: .3s; }
+.toast.on { opacity: 1; transform: translate(-50%, 0); }
+
+@media (max-width: 900px) { .phys .tiles4 { grid-template-columns: repeat(2, 1fr); } .grid3 { grid-template-columns: 1fr; } .bands span:not(.on) { display: none; } }
+@media (max-width: 620px) {
+  .row { flex-direction: column; } .go { min-height: 54px; } .panel { padding: 18px 16px; } .res { padding: 20px 16px 24px; }
+  .prof .r { grid-template-columns: 96px 1fr 40px; } .field input { font-size: 19px; }
+}
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after { animation: none !important; transition-duration: .01ms !important; scroll-behavior: auto !important; }
+}
+</style>
+</head>
+<body>
+<div class="wrap">
+  <header class="top">
+    <div class="logo">
+      <svg viewBox="0 0 32 32" aria-hidden="true"><path d="M16 3l3.6 8.6 9.4.8-7.1 6.2 2.2 9.1L16 22.6 7.9 27.7l2.2-9.1L3 12.4l9.4-.8z" fill="#ffd23f"/></svg>
+      Starmeter
+    </div>
+    <div class="topbtns">
+      <button class="ghost follow" id="followBtn" type="button" aria-pressed="false" title="Rate whatever level you open in Geometry Dash, automatically (needs the Starmeter Live mod)"><i></i>Follow my game</button>
+      <button class="ghost" id="aboutBtn" type="button">How it works</button>
+    </div>
+  </header>
+
+  <section class="hero">
+    <p class="eyebrow"><b>●</b> Geometry Dash difficulty calculator</p>
+    <h1>How hard is this level, <em>to the hundredth?</em></h1>
+    <p class="lede">Enter a level ID and get a star rating with two decimals, plus the error range you should trust it within.</p>
+
+    <form class="panel" id="f" autocomplete="off">
+      <div class="tabs" role="tablist" aria-label="Where is the level?">
+        <button class="tab" type="button" role="tab" data-t="id" aria-selected="true">Level ID</button>
+        <button class="tab" type="button" role="tab" data-t="paste" aria-selected="false">Paste level data</button>
+        <button class="tab" type="button" role="tab" data-t="mine" aria-selected="false">My levels</button>
+        <button class="tab" type="button" role="tab" data-t="file" aria-selected="false">Open a file</button>
+      </div>
+      <div class="pane" data-p="id">
+        <div class="row">
+          <label class="field"><span>ID</span><input id="lid" inputmode="numeric" placeholder="10565740" aria-label="Level ID"></label>
+          <button class="go" type="submit">Calculate rating</button>
+        </div>
+      </div>
+      <div class="pane" data-p="paste" hidden>
+        <textarea id="blob" spellcheck="false" aria-label="Level data" placeholder="Paste the level string here (the long text that starts with H4sI…)"></textarea>
+        <div class="row" style="margin-top:12px"><button class="go" type="submit">Calculate rating</button></div>
+        <p class="note">Works offline for unreleased levels. In the editor, copy the level string, or export the level as a .gmd file.</p>
+      </div>
+      <div class="pane" data-p="mine" hidden><div class="mine" id="mine"></div><p class="note">Reads your local save (CCLocalLevels.dat) on this computer. Nothing is uploaded.</p></div>
+      <div class="pane" data-p="file" hidden>
+        <label class="drop" id="drop"><b>Drop a .gmd file here</b><span>or click to choose one</span><input type="file" id="file" accept=".gmd,.gmd2,.txt" class="sr"></label>
+      </div>
+    </form>
+    <div class="status" id="status" role="status" aria-live="polite"></div>
+    <div class="livebar" id="livebar" hidden role="status" aria-live="polite"></div>
+    <div class="picks" id="picks"><span>Try</span></div>
+    <div class="picks" id="recent" hidden><span>Recent</span></div>
+    <div class="ground" aria-hidden="true"></div>
+  </section>
+
+  <main id="out" hidden></main>
+  <footer>Starmeter gives estimates, not official ratings. It is not affiliated with RobTop Games.</footer>
+</div>
+
+<dialog id="about"><div class="panel" id="aboutBody"></div></dialog>
+<dialog id="replay"><div class="panel">
+  <button class="ghost close" type="button" id="closeReplay">Close</button>
+  <h3>The bot's run</h3>
+  <p class="sub2" style="margin:0;color:var(--dim);font-size:14px">The route the planner chose, played back on the level's hitboxes as the simulator sees them. Red is a hazard, blue is solid, and the player is drawn in its game-mode colour.</p>
+  <canvas id="rc" role="img" aria-label="Replay of the simulated route"></canvas>
+  <div class="rctl"><button class="ghost" type="button" id="rplay">Pause</button><input type="range" id="rseek" min="0" max="1" value="0" aria-label="Position in the run"><span class="mono" id="rtime">0:00</span>
+    <div class="seg" role="group" aria-label="Speed"><button type="button" data-s="0.5" aria-pressed="false">0.5×</button><button type="button" data-s="1" aria-pressed="true">1×</button><button type="button" data-s="2" aria-pressed="false">2×</button></div></div>
+  <div class="rhud" id="rhud"></div><div class="rjump" id="rjump"></div>
+</div></dialog>
+<div class="toast" id="toast" role="status"></div>
+
+<script>
+"use strict";
+const $ = (s, el = document) => el.querySelector(s);
+const $$ = (s, el = document) => [...el.querySelectorAll(s)];
+const esc = s => String(s).replace(/[&<>"]/g, c => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" }[c]));
+const SPEC = [[0, "#46c8ff"], [2, "#38e8d0"], [3.5, "#6bf08a"], [5, "#e8f04a"], [6.5, "#ffb73d"], [8, "#ff7a4d"], [9.5, "#ff4d7e"], [11.5, "#f23dd0"], [14, "#b45cff"], [17, "#6f7cff"], [20, "#e9f1ff"]];
+const MODES = ["cube", "ship", "ball", "ufo", "wave", "robot", "spider", "swing"];
+const MAXSTAR = 20;
+let about = null, busy = false, last = null;
+
+const hex = h => [1, 3, 5].map(i => parseInt(h.slice(i, i + 2), 16));
+function specColor(v) {
+  v = Math.min(Math.max(v, 0), MAXSTAR);
+  const i = SPEC.findIndex(s => s[0] >= v), b = SPEC[Math.max(i, 1)], a = SPEC[Math.max(i, 1) - 1];
+  const t = (v - a[0]) / (b[0] - a[0]), A = hex(a[1]), B = hex(b[1]);
+  return "rgb(" + A.map((x, k) => Math.round(x + (B[k] - x) * t)).join(",") + ")";
+}
+const specGradient = () => "linear-gradient(90deg," + SPEC.map(s => `${s[1]} ${s[0] / MAXSTAR * 100}%`).join(",") + ")";
+const fmtTime = s => `${Math.floor(s / 60)}:${String(Math.floor(s % 60)).padStart(2, "0")}`;
+const num = n => Number(n).toLocaleString("en-US");
+const cap = s => s[0].toUpperCase() + s.slice(1);
+function toast(msg) { const t = $("#toast"); t.textContent = msg; t.classList.add("on"); clearTimeout(toast.k); toast.k = setTimeout(() => t.classList.remove("on"), 1800); }
+
+async function api(path, body) {
+  let r;
+  try { r = await fetch(path, body ? { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) } : undefined); }
+  catch { throw new Error("Starmeter's local server isn't responding. Restart it with run.bat."); }
+  const j = await r.json().catch(() => ({}));
+  if (!r.ok) throw new Error(j.error || `Request failed (${r.status})`);
+  return j;
+}
+
+/* ---------- odometer ---------- */
+function odoBuild(el, text) {
+  el.dataset.text = text.length;
+  el.innerHTML = [...text].map(ch => ch === "."
+    ? '<span class="dot">.</span>'
+    : `<span class="col"><span class="reel">${[...Array(10).keys()].map(n => `<i>${n}</i>`).join("")}</span></span>`).join("");
+}
+function odoSet(el, text, fast) {
+  if (el.dataset.text !== String(text.length)) odoBuild(el, text);
+  let k = 0;
+  $$(".reel", el).forEach(reel => {
+    while (text[k] === ".") k++;
+    reel.classList.toggle("fast", !!fast);
+    reel.style.transitionDelay = fast ? "0s" : `${k * 110}ms`;
+    reel.style.transform = `translateY(${-text[k]}em)`;
+    k++;
+  });
+}
+let spinTimer;
+function spin(el, on) {
+  clearInterval(spinTimer);
+  if (on) { odoBuild(el, "00.00"); spinTimer = setInterval(() => odoSet(el, (Math.random() * 20).toFixed(2).padStart(5, "0"), true), 90); }
+}
+
+/* ---------- result rendering ---------- */
+function band(star) {
+  if (star < 9.5) { for (const [c, n] of [[1.5, "Auto"], [2.5, "Easy"], [3.5, "Normal"], [5.5, "Hard"], [7.5, "Harder"]]) if (star < c) return n; return "Insane"; }
+  for (const [c, n] of about.demon_cuts) if (star < c) return n;
+  return "Extreme Demon";
+}
+function rulerHTML(r, comm) {
+  const P = v => (Math.min(Math.max(v, 0), MAXSTAR) / MAXSTAR * 100).toFixed(2) + "%";
+  const cuts = about.demon_cuts.map(c => c[0]);
+  const bands = [[0, 1.5, "Auto"], [1.5, 2.5, "Easy"], [2.5, 3.5, "Normal"], [3.5, 5.5, "Hard"], [5.5, 7.5, "Harder"], [7.5, 9.5, "Insane"],
+    [9.5, cuts[0], "ED"], [cuts[0], cuts[1], "MD"], [cuts[1], cuts[2], "HD"], [cuts[2], cuts[3], "ID"], [cuts[3], MAXSTAR, "XD"]].filter(b => b[1] != null);
+  const close = !!(comm && comm.star) && Math.abs(comm.star - r.star) < 3.2;
+  const anchor = (v, o) => v / MAXSTAR > .84 ? "L" : v / MAXSTAR < .12 ? "R" : close ? (v >= o ? "R" : "L") : "";
+  const here = band(r.star).replace(/ Demon/, "").slice(0, 2);
+  let ticks = "";
+  for (let v = 0; v <= MAXSTAR; v++) ticks += `<i class="tick ${v % 5 ? "" : "big"}" style="left:${P(v)}"></i>` + (v % 5 === 0 ? `<span class="tick-l" style="left:${P(v)}">${v}</span>` : "");
+  const lo = Math.max(r.star - r.err80, 0), hi = Math.min(r.star + r.err80, MAXSTAR), l5 = Math.max(r.star - r.err50, 0), h5 = Math.min(r.star + r.err50, MAXSTAR);
+  return `<div class="ruler" aria-hidden="true">
+    <div class="track" style="background:${specGradient()}"></div>${ticks}
+    <div class="band" data-l="${P(lo)}" data-w="${(parseFloat(P(hi)) - parseFloat(P(lo))).toFixed(2)}%" style="left:${P(r.star)};width:0"></div>
+    <div class="band b50" data-l="${P(l5)}" data-w="${(parseFloat(P(h5)) - parseFloat(P(l5))).toFixed(2)}%" style="left:${P(r.star)};width:0"></div>
+    ${comm && comm.star ? `<div class="pin comm" style="left:${P(comm.star)}"><span class="${anchor(comm.star, r.star)}">${comm.star.toFixed(2)}</span></div>` : ""}
+    <div class="pin" data-l="${P(r.star)}" style="left:0"><span class="${anchor(r.star, comm && comm.star || r.star)}">${r.star.toFixed(2)}</span></div>
+    <div class="bands">${bands.map(b => `<span class="${b[2] === here || b[2] === band(r.star) ? "on" : ""}" style="left:${P((b[0] + b[1]) / 2)}" title="${esc(({ ED: "Easy Demon", MD: "Medium Demon", HD: "Hard Demon", ID: "Insane Demon", XD: "Extreme Demon" })[b[2]] || b[2])}">${b[2]}</span>`).join("")}</div></div>
+    <p class="rleg"><span><i style="background:#fff"></i>Starmeter</span>${comm && comm.star ? `<span><i style="background:#ffd93d"></i>Community</span>` : ""}<span><i style="background:rgba(255,255,255,.3);border:1px solid rgba(255,255,255,.55)"></i>Likely range: half of levels / 4 in 5</span></p>`;
+}
+function verdictHTML(r, comm, id) {
+  if (!comm) return `<div class="verdict">No community rating for this level, so the number above is all there is. Treat it as a calibrated guess.</div>`;
+  if (!comm.star) return `<div class="verdict">This level hasn't been rated by RobTop yet, so there is nothing to compare against.</div>`;
+  const d = r.star - comm.star, ad = Math.abs(d);
+  const who = comm.tier ? "community" : "official";
+  const src = comm.tier ? `GDDL tier ${comm.tier.toFixed(2)} from ${num(comm.votes)} votes` : `${comm.official_stars}★${comm.face ? `, ${esc(comm.face)}` : ""}`;
+  const txt = ad < 0.05 ? `matches the ${who} rating` : `${ad.toFixed(2)}★ ${d > 0 ? "above" : "below"} the ${who} rating`;
+  return `<div class="verdict"><span class="d">${d > 0 ? "+" : d < 0 ? "−" : "±"}${ad.toFixed(2)}★</span>Starmeter reads <b>${txt}</b> of ${comm.star.toFixed(2)}★ (${src}). ${ad <= r.err80 ? "That is inside the expected error range." : "That is outside the usual error range, which usually means something the model can't see (gimmicks, memory, visuals)."}${comm.tier && id ? ` <a href="https://gdladder.com/level/${id}" target="_blank" rel="noopener noreferrer">GDDL page ↗</a>` : ""}</div>`;
+}
+function spikeHTML(tl) {
+  return `<div class="head"><p class="label">Pressure over time</p>
+    <div class="seg" role="group" aria-label="Chart metric"><button type="button" aria-pressed="true" data-m="inputs">Input pressure</button><button type="button" aria-pressed="false" data-m="tight">Tight corridors</button></div></div>
+    <div class="field-wrap" id="fw"><svg id="sf" role="img" aria-label="Estimated difficulty over the length of the level"></svg><div class="tip" id="tip" hidden></div></div>
+    <div class="legend" id="lg"></div>`;
+}
+function drawSpikes(tl, metric) {
+  const svg = $("#sf"), fw = $("#fw"); if (!svg) return;
+  const W = Math.max(fw.clientWidth, 320), H = 210, G = 176, n = tl.inputs.length, data = tl[metric];
+  const vmax = metric === "inputs" ? Math.max(6, Math.max(...data) * 1.08) : Math.max(0.5, Math.max(...data) * 1.08);
+  const bw = Math.min(W / n, 30), x0 = (W - bw * n) / 2;
+  let s = `<defs><filter id="gl" x="-30%" y="-30%" width="160%" height="160%"><feGaussianBlur stdDeviation="2.6" result="b"/><feMerge><feMergeNode in="b"/><feMergeNode in="SourceGraphic"/></feMerge></filter></defs>`;
+  for (const f of [.25, .5, .75, 1]) s += `<line x1="0" x2="${W}" y1="${G - f * (G - 14)}" y2="${G - f * (G - 14)}" stroke="rgba(150,160,255,.14)" stroke-dasharray="3 5"/><text x="2" y="${G - f * (G - 14) - 4}" fill="#8c92d4" font-size="10.5" font-family="JetBrains Mono, monospace">${metric === "inputs" ? (f * vmax).toFixed(0) + "/s" : (f * vmax * 100).toFixed(0) + "%"}</text>`;
+  const win = Math.max(1, Math.round(5 / tl.step)), sums = [];
+  for (let i = 0; i + win <= n; i++) sums.push(data.slice(i, i + win).reduce((a, b) => a + b, 0) / win);
+  const hi = sums.indexOf(Math.max(...sums));
+  if (hi >= 0 && Math.max(...sums) > 0) s += `<rect x="${x0 + hi * bw}" y="6" width="${win * bw}" height="${G - 6}" rx="3" fill="rgba(255,255,255,.07)" stroke="rgba(255,255,255,.25)" stroke-dasharray="3 4"/>`;
+  data.forEach((v, i) => {
+    const h = Math.max(v / vmax * (G - 14), 0), x = x0 + i * bw, col = `var(--${MODES[tl.mode[i]]})`;
+    s += `<path class="sp" style="--i:${i}" d="M${x + bw * .06} ${G}L${x + bw / 2} ${G - Math.max(h, 1.5)}L${x + bw * .94} ${G}Z" fill="${col}" fill-opacity="${.55 + .45 * Math.min(h / (G - 14), 1)}" ${h > (G - 14) * .6 ? 'filter="url(#gl)"' : ""}/>`;
+  });
+  let run = 0;
+  for (let i = 1; i <= n; i++) if (i === n || tl.mode[i] !== tl.mode[run]) { s += `<rect x="${x0 + run * bw}" y="${G}" width="${(i - run) * bw}" height="9" fill="var(--${MODES[tl.mode[run]]})"/>`; run = i; }
+  const total = n * tl.step, every = [5, 10, 15, 30, 60, 120, 300].find(e => total / e <= W / 70) || 600;
+  for (let t = 0; t <= total; t += every) s += `<text x="${x0 + t / tl.step * bw}" y="${G + 28}" text-anchor="middle" fill="#8c92d4" font-size="11" font-family="JetBrains Mono, monospace">${fmtTime(t)}</text>`;
+  svg.setAttribute("viewBox", `0 0 ${W} ${H + 8}`); svg.innerHTML = s;
+  const used = [...new Set(tl.mode)].map(m => `<span><i style="background:var(--${MODES[m]})"></i>${cap(MODES[m])}</span>`).join("");
+  const hm = tl.mode[Math.min(hi + (win >> 1), n - 1)], hv = sums[hi] || 0;
+  $("#lg").innerHTML = used + (hi >= 0 && hv > 0 ? `<span class="hard">Hardest stretch ${fmtTime(hi * tl.step)} to ${fmtTime((hi + win) * tl.step)} · ${cap(MODES[hm])} · ${metric === "inputs" ? hv.toFixed(1) + " inputs/s" : Math.round(hv * 100) + "% tight"}</span>` : "");
+  const tip = $("#tip");
+  fw.onmousemove = e => {
+    const rect = svg.getBoundingClientRect(), px = (e.clientX - rect.left) / rect.width * W, i = Math.min(Math.max(Math.floor((px - x0) / bw), 0), n - 1);
+    tip.hidden = false; tip.style.left = Math.min(Math.max(x0 + (i + .5) * bw, 80), W - 80) + "px"; tip.style.top = "6px";
+    tip.innerHTML = `<b>${fmtTime(i * tl.step)}</b> · <span style="color:var(--${MODES[tl.mode[i]]})">${cap(MODES[tl.mode[i]])}</span><br>${tl.inputs[i].toFixed(1)} inputs/s · ${(tl.tight[i] * 100).toFixed(0)}% tight`;
+  };
+  fw.onmouseleave = () => tip.hidden = true;
+}
+const pct = v => Math.round(v * 100) + "%";
+function odds(p) { return p >= 0.995 ? "≈ 100%" : p >= 0.1 ? Math.round(p * 100) + "%" : p >= 0.001 ? "1 in " + num(Math.round(1 / p)) : "< 1 in 1,000"; }
+function physicsHTML(sm, engine) {
+  const head = t => `<div class="head"><p class="label">Physics simulation</p>${t ? `<p class="cap">${t}</p>` : ""}</div>`;
+  const role = engine === "physics" ? "" : " These numbers show where the difficulty sits; the physics-checked rating that uses them replaces the number above once the pass finishes.";
+  if (!sm || sm.status === "off") return `${head("")}<p class="note-s" style="margin:0">The physics pass needs numba. Install it with <b>pip install numba numpy</b> and restart; until then the rating comes from the level's structure alone.</p>`;
+  if (sm.status === "pending") return `${head("running")}<div class="run"><i></i></div><p class="note-s" style="margin:0">A bot is playing the level frame by frame with Geometry Dash's physics, then replaying its route with shaky timing. The first run compiles the simulator, which can take a minute.</p>`;
+  if (sm.status === "error") return `${head("")}<p class="note-s" style="margin:0">The physics pass failed: ${esc(sm.note)} The rating above still stands.</p>`;
+  if (sm.status === "none") return `${head("")}<p class="note-s" style="margin:0">${esc(sm.note)}</p>`;
+  return `${head(`the bot followed ${pct(sm.coverage)} of the route`)}
+    <div class="tiles4"><div><b>${sm.presses.toFixed(1)}</b><small>clicks per second<br>on the bot's route</small></div>
+      <div><b>${sm.busiest}</b><small>busiest second<br>(presses and releases)</small></div>
+      <div><b>${odds(sm.survive)}</b><small>chance of a clean run<br>with ±${sm.sigma} frame timing</small></div>
+      <div><b>${pct(sm.coverage)}</b><small>of the level simulated<br>${sm.forced ? sm.forced + " spots skipped" : "no spots skipped"}</small></div></div>
+    ${sm.token ? `<p style="margin:0 0 18px"><button class="ghost watch" type="button" id="watch">Watch the bot play it</button></p>` : ""}
+    <h4>Where a slip of ±${sm.sigma} frames costs you</h4>
+    <p class="sub2">Each bar is half a second of the level: how often a replay with shaky timing dies there. Grey ticks mark stretches the simulator could not follow.</p>
+    <div class="field-wrap" id="rkw"><svg id="rk" role="img" aria-label="Chance of dying over the length of the level when timing is off"></svg><div class="tip" id="rktip" hidden></div></div>
+    ${sm.hardest.length ? `<div class="hard-list">${sm.hardest.map(h => `<span><b>${fmtTime(h.t0)}–${fmtTime(h.t1)}</b> · ${cap(MODES[h.mode])} · ${h.risk.toFixed(1)} expected misses</span>`).join("")}</div>` : ""}
+    <p class="note-s">The bot looks for the route with the fewest input changes that keeps away from hazards, then replays it ${24} times with every input shifted by a random ±${sm.sigma}-frame error. It is a model of the level, not a player: moving parts, teleports, dual mode and several orbs are not simulated.${role}</p>`;
+}
+function drawRisk(sm) {
+  const svg = $("#rk"), fw = $("#rkw"); if (!svg || !sm || sm.status !== "ok") return;
+  const W = Math.max(fw.clientWidth, 320), G = 130, H = 168, n = sm.risk.length, bw = Math.min(W / n, 24), x0 = (W - bw * n) / 2;
+  let s = `<defs><filter id="gl2" x="-30%" y="-30%" width="160%" height="160%"><feGaussianBlur stdDeviation="2.4" result="b"/><feMerge><feMergeNode in="b"/><feMergeNode in="SourceGraphic"/></feMerge></filter></defs>`;
+  for (const f of [.25, .5, .75, 1]) s += `<line x1="0" x2="${W}" y1="${G - f * (G - 10)}" y2="${G - f * (G - 10)}" stroke="rgba(150,160,255,.14)" stroke-dasharray="3 5"/><text x="2" y="${G - f * (G - 10) - 4}" fill="#8c92d4" font-size="10.5" font-family="JetBrains Mono, monospace">${Math.round(f * 100)}%</text>`;
+  sm.risk.forEach((v, i) => {
+    const x = x0 + i * bw, col = `var(--${MODES[sm.mode[i]]})`;
+    if (sm.unsure[i]) { s += `<rect x="${x + bw * .25}" y="${G - 8}" width="${bw * .5}" height="8" fill="rgba(200,208,255,.35)"/>`; return; }
+    const h = Math.max(v * (G - 10), 1.2);
+    s += `<path class="sp" style="--i:${i}" d="M${x + bw * .06} ${G}L${x + bw / 2} ${G - h}L${x + bw * .94} ${G}Z" fill="${col}" fill-opacity="${.45 + .55 * Math.min(v * 1.5, 1)}" ${v > .5 ? 'filter="url(#gl2)"' : ""}/>`;
+  });
+  let run = 0;
+  for (let i = 1; i <= n; i++) if (i === n || sm.mode[i] !== sm.mode[run]) { s += `<rect x="${x0 + run * bw}" y="${G + 2}" width="${(i - run) * bw}" height="8" fill="var(--${MODES[sm.mode[run]]})"/>`; run = i; }
+  const total = n * sm.step, every = [5, 10, 15, 30, 60, 120, 300].find(e => total / e <= W / 70) || 600;
+  for (let t = 0; t <= total; t += every) s += `<text x="${x0 + t / sm.step * bw}" y="${G + 26}" text-anchor="middle" fill="#8c92d4" font-size="11" font-family="JetBrains Mono, monospace">${fmtTime(t)}</text>`;
+  svg.setAttribute("viewBox", `0 0 ${W} ${H}`); svg.innerHTML = s;
+  const tip = $("#rktip");
+  fw.onmousemove = e => {
+    const rect = svg.getBoundingClientRect(), px = (e.clientX - rect.left) / rect.width * W, i = Math.min(Math.max(Math.floor((px - x0) / bw), 0), n - 1);
+    tip.hidden = false; tip.style.left = Math.min(Math.max(x0 + (i + .5) * bw, 80), W - 80) + "px"; tip.style.top = "6px";
+    tip.innerHTML = `<b>${fmtTime(i * sm.step)}</b> · <span style="color:var(--${MODES[sm.mode[i]]})">${cap(MODES[sm.mode[i]])}</span><br>${sm.unsure[i] ? "not simulated" : pct(sm.risk[i]) + " chance of a miss"}`;
+  };
+  fw.onmouseleave = () => tip.hidden = true;
+}
+/* ---------- replay viewer ---------- */
+const MCOL = ["#3df0a6", "#ff5ca8", "#ff9f43", "#ffd93d", "#4fc3ff", "#c792ff", "#ff6b6b", "#a3ff5c"];
+const PADC = [, "#ffd93d", "#ff5ca8", "#ff5252", "#4fc3ff"], ORBC = [, "#ffd93d", "#ff5ca8", "#ff5252", "#4fc3ff", "#6bf08a", "#1a1a2e"];
+let RV = null;
+function replayEnd() { if (RV) { cancelAnimationFrame(RV.raf); RV = null; } }
+async function openReplay(sm) {
+  const dlg = $("#replay");
+  dlg.showModal();
+  $("#rhud").textContent = "Loading the run…";
+  let R;
+  try { R = await api(`/api/replay?token=${encodeURIComponent(sm.token)}`); } catch (e) { $("#rhud").textContent = e.message; return; }
+  const byX = (a, i0) => a.slice().sort((p, q) => p[i0] - q[i0]);
+  RV = { R, sm, solids: byX(R.solids, 0), hazards: byX(R.hazards, 1), n: R.hold.length, t: 0, play: true, speed: 1, last: 0, camY: null, raf: 0 };
+  $("#rseek").max = String(RV.n - 1); $("#rseek").value = "0"; $("#rplay").textContent = "Pause";
+  $$("#replay .seg button").forEach(b => b.setAttribute("aria-pressed", b.dataset.s === "1"));
+  $("#rjump").innerHTML = sm.hardest.length ? "<span class='mono' style='font-size:12.5px;color:var(--dim);align-self:center'>Jump to</span>" + sm.hardest.map(h => `<button class="chip" type="button" data-t="${Math.max(h.t0 - 1.5, 0)}">${fmtTime(h.t0)} · ${cap(MODES[h.mode])}</button>`).join("") : "";
+  $$("#rjump .chip").forEach(b => b.onclick = () => { RV.t = Math.min(+b.dataset.t * 60, RV.n - 1); RV.play = true; $("#rplay").textContent = "Pause"; });
+  RV.last = performance.now(); RV.raf = requestAnimationFrame(replayFrame);
+}
+function firstAtOrAfter(a, i0, v) { let lo = 0, hi = a.length; while (lo < hi) { const m = (lo + hi) >> 1; if (a[m][i0] < v) lo = m + 1; else hi = m; } return lo; }
+function replayFrame(now) {
+  if (!RV) return;
+  const { R, sm } = RV, cv = $("#rc"), ctx = cv.getContext("2d"), dpr = window.devicePixelRatio || 1;
+  const W = cv.clientWidth, H = cv.clientHeight;
+  if (cv.width !== Math.round(W * dpr)) { cv.width = Math.round(W * dpr); cv.height = Math.round(H * dpr); }
+  ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+  if (RV.play) { RV.t = Math.max(0, RV.t + Math.max(now - RV.last, 0) / 1000 * 60 * RV.speed); if (RV.t >= RV.n - 1) { RV.t = RV.n - 1; RV.play = false; $("#rplay").textContent = "Replay"; } }
+  RV.last = now;
+  const i = Math.floor(RV.t), f = RV.t - i, j = Math.min(i + 1, RV.n);
+  const px = R.x[i] + (R.x[j] - R.x[i]) * f, py = R.y[i] + (R.y[j] - R.y[i]) * f, mode = R.mode[Math.min(i, RV.n - 1)], mini = R.mini[Math.min(i, RV.n - 1)];
+  const fl = R.floor[Math.min(i, RV.n - 1)], ce = R.ceil[Math.min(i, RV.n - 1)];
+  const SC = H / 360, viewW = W / SC, left = px - viewW * .3;
+  let want = fl - 28;                                         // keep the floor in view, rise only when the player climbs out of the top
+  if (py + 70 > want + H / SC) want = py + 70 - H / SC;
+  if (RV.camY === null) RV.camY = want;
+  RV.camY += (want - RV.camY) * .2;
+  const bot = RV.camY, X = x => (x - left) * SC, Y = y => H - (y - bot) * SC;
+  const g = ctx.createLinearGradient(0, 0, 0, H); g.addColorStop(0, "#0b0840"); g.addColorStop(1, "#1a0f5c"); ctx.fillStyle = g; ctx.fillRect(0, 0, W, H);
+  ctx.strokeStyle = "rgba(150,160,255,.08)"; ctx.lineWidth = 1; ctx.beginPath();
+  for (let gx = Math.floor(left / 30) * 30; gx < left + viewW; gx += 30) { ctx.moveTo(X(gx), 0); ctx.lineTo(X(gx), H); }
+  for (let gy = Math.floor(bot / 30) * 30; gy < bot + H / SC; gy += 30) { ctx.moveTo(0, Y(gy)); ctx.lineTo(W, Y(gy)); }
+  ctx.stroke();
+  const line = (y, c) => { ctx.strokeStyle = c; ctx.lineWidth = 3; ctx.beginPath(); ctx.moveTo(0, Y(y)); ctx.lineTo(W, Y(y)); ctx.stroke(); };
+  ctx.fillStyle = "rgba(5,3,31,.9)"; ctx.fillRect(0, Y(fl), W, H); line(fl, "rgba(143,123,255,.9)");
+  if (ce < 90000) { ctx.fillRect(0, 0, W, Y(ce)); line(ce, "rgba(143,123,255,.9)"); }
+  // solids
+  ctx.fillStyle = "rgba(111,124,255,.28)"; ctx.strokeStyle = "rgba(150,170,255,.75)"; ctx.lineWidth = 1.2;
+  for (let k = firstAtOrAfter(RV.solids, 0, left - 130); k < RV.solids.length && RV.solids[k][0] < left + viewW; k++) {
+    const [x0, x1, y0, y1, kind, d] = RV.solids[k]; if (y1 < bot || y0 > bot + H / SC) continue;
+    ctx.beginPath();
+    if (kind === 1) { const v = [[[x0, y0], [x1, y0], [x1, y1]], [[x0, y0], [x1, y0], [x0, y1]], [[x0, y1], [x1, y1], [x0, y0]], [[x0, y1], [x1, y1], [x1, y0]]][d]; ctx.moveTo(X(v[0][0]), Y(v[0][1])); ctx.lineTo(X(v[1][0]), Y(v[1][1])); ctx.lineTo(X(v[2][0]), Y(v[2][1])); ctx.closePath(); }
+    else ctx.rect(X(x0), Y(y1), (x1 - x0) * SC, (y1 - y0) * SC);
+    ctx.fill(); ctx.stroke();
+  }
+  for (const [x0, x1, y0, y1, t] of R.pads) if (x1 > left && x0 < left + viewW) { ctx.fillStyle = PADC[t] || "#fff"; ctx.fillRect(X(x0), Y(y1), (x1 - x0) * SC, (y1 - y0) * SC); }
+  for (const [ox, oy, t] of R.orbs) if (ox > left - 30 && ox < left + viewW + 30) { ctx.strokeStyle = ORBC[t] || "#fff"; ctx.lineWidth = 3; ctx.beginPath(); ctx.arc(X(ox), Y(oy), 14 * SC, 0, 6.3); ctx.stroke(); ctx.fillStyle = (ORBC[t] || "#fff") + "55"; ctx.fill(); }
+  // hazards (the hitbox the simulator uses)
+  ctx.fillStyle = "rgba(255,70,110,.55)"; ctx.strokeStyle = "#ff4d7e"; ctx.lineWidth = 1.4;
+  for (let k = firstAtOrAfter(RV.hazards, 1, left - 130); k < RV.hazards.length && RV.hazards[k][1] < left + viewW; k++) {
+    const [kind, x0, x1, y0, y1, cx, cy, r] = RV.hazards[k]; if (y1 < bot || y0 > bot + H / SC) continue;
+    ctx.beginPath();
+    if (kind === 1) ctx.arc(X(cx), Y(cy), r * SC, 0, 6.3); else ctx.rect(X(x0), Y(y1), (x1 - x0) * SC, (y1 - y0) * SC);
+    ctx.fill(); ctx.stroke();
+  }
+  // trail + player
+  ctx.strokeStyle = MCOL[mode]; ctx.lineWidth = 2; ctx.beginPath();
+  for (let k = Math.max(0, i - 50); k <= i; k++) { const a = k === 0 ? 0 : 1; (k === Math.max(0, i - 50)) ? ctx.moveTo(X(R.x[k]), Y(R.y[k])) : ctx.lineTo(X(R.x[k]), Y(R.y[k])); }
+  ctx.globalAlpha = .55; ctx.stroke(); ctx.globalAlpha = 1;
+  const sz = (mode === 4 ? 10 : 30) * (mini ? .6 : 1), forced = !!R.forced[Math.min(i, RV.n - 1)], hold = R.hold[Math.min(i, RV.n - 1)];
+  ctx.save(); ctx.translate(X(px), Y(py));
+  ctx.shadowColor = MCOL[mode]; ctx.shadowBlur = hold ? 18 : 6;
+  ctx.fillStyle = forced ? "rgba(200,208,255,.5)" : MCOL[mode] + "cc"; ctx.strokeStyle = "#fff"; ctx.lineWidth = 1.5;
+  if (mode === 4) { ctx.rotate(Math.atan2(-(R.y[j] - R.y[i]), R.x[j] - R.x[i] || 1)); ctx.beginPath(); ctx.moveTo(-sz * SC, 0); ctx.lineTo(sz * SC * .9, -sz * SC * .5); ctx.lineTo(sz * SC * .9, sz * SC * .5); ctx.closePath(); }
+  else { ctx.beginPath(); ctx.rect(-sz / 2 * SC, -sz / 2 * SC, sz * SC, sz * SC); }
+  ctx.fill(); ctx.stroke(); ctx.restore();
+  if (R.up[Math.min(i, RV.n - 1)] < 0) { ctx.fillStyle = "#fff"; ctx.font = "600 11px JetBrains Mono, monospace"; ctx.fillText("▲ gravity flipped", X(px) - 40, Y(py) - 24 * SC); }
+  const sec = RV.t / 60, seg = Math.min(Math.floor(sec / sm.step), sm.risk.length - 1);
+  $("#rseek").value = String(Math.floor(RV.t)); $("#rtime").textContent = fmtTime(sec);
+  $("#rhud").innerHTML = `<span>${cap(MODES[mode])}${mini ? " · mini" : ""}</span><span>${hold ? "<b>holding</b>" : "released"}</span><span>risk here <b>${sm.unsure[seg] ? "n/a" : pct(sm.risk[seg])}</b></span>${forced ? "<span style='color:#ffd9a0'>the simulator skipped this spot</span>" : ""}`;
+  RV.raf = requestAnimationFrame(replayFrame);
+}
+function profileHTML(rows) {
+  return `<p class="label">Skill profile</p><div class="prof">${rows.map(p => `<div class="r"><span>${p.label}</span><div class="t"><u style="left:25%"></u><u style="left:50%"></u><u style="left:75%"></u><i data-w="${p.pct ?? 0}%"></i></div><span class="v">${p.pct == null ? "–" : Math.round(p.pct)}</span></div>`).join("")}</div>
+  <p class="note-s">Percentile against the ${num(about.metrics.n)} rated levels the model learned from.</p>`;
+}
+function composeHTML(st) {
+  const seg = (obj, colf) => Object.entries(obj).map(([k, v]) => `<i style="flex:${v};background:${colf(k)}" title="${cap(k)} ${(v * 100).toFixed(0)}%"></i>`).join("");
+  const leg = (obj, colf) => `<div class="legend">${Object.entries(obj).map(([k, v]) => `<span><i style="background:${colf(k)};clip-path:none;border-radius:50%"></i>${cap(k)} ${(v * 100).toFixed(0)}%</span>`).join("")}</div>`;
+  const sp = { "0.5x": "#6f7cff", "1x": "#46c8ff", "2x": "#6bf08a", "3x": "#ffd93d", "4x": "#ff5ca8" };
+  const tile = (v, l) => `<div><b>${v}</b><small>${l}</small></div>`;
+  return `<p class="label">What's inside</p>
+    <div class="stack">${seg(st.mode_share, k => `var(--${k})`)}</div>${leg(st.mode_share, k => `var(--${k})`)}
+    <div class="stack">${seg(st.speed_share, k => sp[k])}</div>${leg(st.speed_share, k => sp[k])}
+    <div class="tiles">${tile(fmtTime(st.length_s), "length")}${tile(num(st.objects), "objects")}${tile(num(st.hazards), "hazards")}${tile(num(st.orbs), "orbs")}${tile(num(st.pads), "pads")}${tile(num(st.portals), "portals")}</div>`;
+}
+function simHTML(rows) {
+  return `<p class="label">Plays like</p><ul class="sim">${rows.map(s => `<li><button type="button" data-id="${s.id}"><i class="dotc" style="background:${specColor(s.star)}"></i><span class="n">${esc(s.name)}<small>${esc(s.kind)} · #${s.id}</small></span><span class="s" style="color:${specColor(s.star)}">${s.star.toFixed(2)}</span></button></li>`).join("")}</ul>
+  <p class="note-s">The closest rated levels by structure. If they disagree with the number above, trust the number less.</p>`;
+}
+
+function render(d, keep) {
+  last = d;
+  const r = d.rating, src = d.source, comm = d.community;
+  if (src.kind !== "online") history.replaceState(null, "", location.pathname);
+  const root = $("#out");
+  document.documentElement.style.setProperty("--rc", specColor(r.star));
+  const meta = src.kind === "online"
+    ? `#${src.id} · ${esc(src.difficulty)}${src.stars ? ` · ${src.stars}★ official` : " · unrated"} · ${num(src.downloads)} downloads`
+    : { local: "From your game", file: "Imported file", paste: "Pasted level data", official: "Official level, read from your game folder" }[src.kind];
+  root.hidden = false;
+  root.innerHTML = `
+    ${d.warnings.map(w => `<div class="warn">${esc(w)}</div>`).join("")}
+    <article class="panel res">
+      <div class="res-top"><div><h2>${esc(src.name)}</h2><p class="sub">${meta}</p></div><button class="ghost copy" type="button" id="copy">Copy result</button></div>
+      <div class="hero-num">
+        <div class="odo-line" aria-label="${r.star.toFixed(2)} stars" title="Two decimals let you rank levels against each other. The range beside it is the real precision."><svg viewBox="0 0 32 32" aria-hidden="true"><path d="M16 2.5l3.9 9.2 10 .9-7.6 6.6 2.3 9.7L16 23.3l-8.6 5.6 2.3-9.7L2.1 12.6l10-.9z"/></svg><div class="odo" id="odo"></div></div>
+        <div class="facts"><span class="face">${esc(r.face)}</span>
+          <span class="conf ${r.confidence}">${{ high: "Resembles levels the model knows", medium: "Somewhat unusual level", low: "Unlike the levels it learned from" }[r.confidence]}</span>
+          ${r.engine === "physics" ? `<span class="engine" title="The physics simulation contributed to this number.">Physics-checked</span>` : ""}
+          ${r.tier ? `<p>Equivalent to <b>GDDL tier ${r.tier.toFixed(2)}</b></p>` : ""}
+          <p>Likely between <b>${Math.max(r.star - r.err80, 0).toFixed(2)}</b> and <b>${(r.star + r.err80).toFixed(2)}</b>★<br><span style="color:var(--dim);font-size:13.5px">typical error ±${r.err50.toFixed(2)}★ · 4 in 5 levels within ±${r.err80.toFixed(2)}★</span></p></div>
+      </div>
+      ${rulerHTML(r, comm)}
+      ${verdictHTML(r, comm, src.id)}
+    </article>
+    <article class="panel phys" id="phys">${physicsHTML(d.sim, r.engine)}</article>
+    <article class="panel spikes">${spikeHTML(d.timeline)}</article>
+    <div class="grid3">
+      <article class="panel">${profileHTML(r.profile)}</article>
+      <article class="panel">${composeHTML(d.stats)}</article>
+      <article class="panel">${simHTML(r.similar)}</article>
+    </div>`;
+  const odo = $("#odo");
+  odoBuild(odo, r.star.toFixed(2)); odoSet(odo, "00.00", true);
+  setTimeout(() => {                                          // a timer, not rAF: background tabs must still land on the final values
+    odoSet(odo, r.star.toFixed(2));
+    $$(".band").forEach(b => { b.style.left = b.dataset.l; b.style.width = b.dataset.w; });
+    $$(".pin[data-l]").forEach(p => p.style.left = p.dataset.l);
+    $$(".prof i[data-w]").forEach(i => i.style.width = i.dataset.w);
+  }, 70);
+  drawSpikes(d.timeline, "inputs");
+  drawRisk(d.sim);
+  if ($("#watch")) $("#watch").onclick = () => openReplay(d.sim);
+  if (d.sim && d.sim.status === "pending") runSim(d);
+  $$(".seg button").forEach(b => b.onclick = () => { $$(".seg button").forEach(x => x.setAttribute("aria-pressed", x === b)); drawSpikes(d.timeline, b.dataset.m); });
+  $("#copy").onclick = () => navigator.clipboard.writeText(`${src.name}${src.id ? ` (${src.id})` : ""}: ${r.star.toFixed(2)}★ ${r.face}${r.tier ? ` (≈ GDDL tier ${r.tier.toFixed(2)})` : ""}, likely ${Math.max(r.star - r.err80, 0).toFixed(2)}–${(r.star + r.err80).toFixed(2)}★. Calculated with Starmeter.`).then(() => toast("Copied to clipboard"), () => toast("Couldn't copy"));
+  $$(".sim button").forEach(b => b.onclick = () => rateId(b.dataset.id));
+  if (!keep) root.scrollIntoView({ behavior: "smooth", block: "start" });
+  remember(d);
+}
+async function runSim(d) {
+  const tok = d.sim.token;
+  try {
+    const d2 = await api(`/api/sim?token=${encodeURIComponent(tok)}`);
+    if (last && last.sim && last.sim.token === tok) render(d2, true);
+  } catch (e) {
+    if (last && last.sim && last.sim.token === tok) { last.sim = { status: "error", note: e.message }; const el = $("#phys"); if (el) el.innerHTML = physicsHTML(last.sim, last.rating.engine); }
+  }
+}
+
+/* ---------- history ---------- */
+const HK = "starmeter.history";
+const hist = () => { try { return JSON.parse(localStorage.getItem(HK)) || []; } catch { return []; } };
+function remember(d) {
+  if (d.source.kind !== "online") return;
+  const h = hist().filter(x => x.id !== d.source.id);
+  h.unshift({ id: d.source.id, name: d.source.name, star: d.rating.star });
+  try { localStorage.setItem(HK, JSON.stringify(h.slice(0, 8))); } catch { }
+  showRecent();
+}
+function showRecent() {
+  const h = hist(), box = $("#recent");
+  box.hidden = !h.length;
+  box.innerHTML = "<span>Recent</span>" + h.map(x => `<button class="chip" type="button" data-id="${x.id}"><i style="color:${specColor(x.star)}">★ ${x.star.toFixed(2)}</i>${esc(x.name)}</button>`).join("");
+  $$("button", box).forEach(b => b.onclick = () => rateId(b.dataset.id));
+}
+
+/* ---------- actions ---------- */
+async function go(label, call) {
+  if (busy) return;
+  busy = true; $$(".go").forEach(b => b.disabled = true);
+  const st = $("#status"); st.className = "status"; st.textContent = label;
+  const out = $("#out");
+  out.hidden = false; out.innerHTML = `<article class="panel res"><div class="res-top"><div><h2>Calculating…</h2></div></div><div class="hero-num"><div class="odo-line"><svg viewBox="0 0 32 32" aria-hidden="true"><path d="M16 2.5l3.9 9.2 10 .9-7.6 6.6 2.3 9.7L16 23.3l-8.6 5.6 2.3-9.7L2.1 12.6l10-.9z"/></svg><div class="odo" id="odo"></div></div></div></article>`;
+  document.documentElement.style.setProperty("--rc", "#6f7cff");
+  spin($("#odo"), true);
+  let t;
+  try {
+    t = setTimeout(() => st.textContent = "Reading the level and measuring it…", 900);
+    const d = await call(); clearTimeout(t);
+    spin($("#odo"), false); st.textContent = "";
+    render(d);
+  } catch (e) {
+    spin(null, false); out.hidden = true; st.className = "status err";
+    st.textContent = e.message + (/reach|HTTP 4|HTTP 5/.test(e.message) ? " Level data you already have can still be rated from the Paste tab." : "");
+  } finally { clearTimeout(t); busy = false; $$(".go").forEach(b => b.disabled = false); }
+}
+const rateId = id => { $("#lid").value = id; selectTab("id"); history.replaceState(null, "", `?id=${id}`); return go("Downloading level…", () => api(`/api/rate?id=${encodeURIComponent(id)}`)); };
+
+function selectTab(t) {
+  $$(".tab").forEach(b => b.setAttribute("aria-selected", b.dataset.t === t));
+  $$(".pane").forEach(p => p.hidden = p.dataset.p !== t);
+  if (t === "mine") loadMine();
+}
+async function loadMine() {
+  const box = $("#mine"); box.innerHTML = "<p class='note'>Looking for your save…</p>";
+  try {
+    const l = await api("/api/local");
+    box.innerHTML = l.length ? l.map(x => `<button type="button" data-i="${x.i}">${esc(x.name)}<small>${x.objects ? num(x.objects) + " objects" : num(x.kb) + " KB of level data"}</small></button>`).join("") : "<p class='note'>Your save has no levels yet.</p>";
+    $$("button", box).forEach(b => b.onclick = () => go("Reading your level…", () => api(`/api/local/rate?i=${b.dataset.i}`)));
+  } catch (e) { box.innerHTML = `<p class="note">${esc(e.message)}</p>`; }
+}
+function sendFile(f) {
+  if (!f) return;
+  const rd = new FileReader();
+  rd.onload = () => go("Reading file…", () => api("/api/paste", { data: String(rd.result), name: f.name.replace(/\.[^.]+$/, ""), file: true }));
+  rd.readAsText(f);
+}
+
+$("#f").addEventListener("submit", e => {
+  e.preventDefault();
+  const tab = $(".tab[aria-selected=true]").dataset.t;
+  if (tab === "id") { const v = $("#lid").value.trim().replace(/^#/, ""); return /^\d+$/.test(v) ? rateId(v) : (() => { $("#status").className = "status err"; $("#status").textContent = "Enter a numeric level ID, for example 10565740."; })(); }
+  if (tab === "paste") return go("Reading level data…", () => api("/api/paste", { data: $("#blob").value }));
+});
+$$(".tab").forEach(b => b.onclick = () => selectTab(b.dataset.t));
+$("#file").onchange = e => sendFile(e.target.files[0]);
+const drop = $("#drop");
+["dragenter", "dragover"].forEach(ev => drop.addEventListener(ev, e => { e.preventDefault(); drop.classList.add("over"); }));
+["dragleave", "drop"].forEach(ev => drop.addEventListener(ev, e => { e.preventDefault(); drop.classList.remove("over"); }));
+drop.addEventListener("drop", e => sendFile(e.dataTransfer.files[0]));
+$("#picks").insertAdjacentHTML("beforeend", [["Bloodbath", 10565740], ["Silent Clubstep", 4125776], ["Avalanche", 38325880], ["Shock", 28225110], ["animus", 24954527]].map(([n, i]) => `<button class="chip" type="button" data-id="${i}">${n}</button>`).join(""));
+$$("#picks button").forEach(b => b.onclick = () => rateId(b.dataset.id));
+window.addEventListener("resize", () => { clearTimeout(window.rz); window.rz = setTimeout(() => { if (last) { drawSpikes(last.timeline, $(".seg button[aria-pressed=true]")?.dataset.m || "inputs"); drawRisk(last.sim); } }, 150); });
+
+/* ---------- follow my game ---------- */
+const FK = "starmeter.follow";
+let follow = false, lastSeq = null, liveTimer = 0, liveState = null;
+const ago = s => s == null ? "" : s < 5 ? "just now" : s < 90 ? `${Math.round(s)} s ago` : s < 5400 ? `${Math.round(s / 60)} min ago` : `${Math.round(s / 3600)} h ago`;
+function paintLive(L, note) {
+  const bar = $("#livebar"), btn = $("#followBtn");
+  btn.setAttribute("aria-pressed", follow); btn.classList.toggle("live", follow && !!(L && L.present));
+  bar.hidden = !follow; if (!follow) return;
+  bar.classList.toggle("ok", !!(L && L.present));
+  if (note) { bar.innerHTML = note; return; }
+  if (!L) { bar.textContent = "Looking for Geometry Dash…"; return; }
+  if (!L.present) {
+    bar.innerHTML = `<b>Waiting for the Starmeter Live mod.</b> Install it in Geode's mods folder (see geode-mod/README.md), start Geometry Dash and open any level. Looking for <code>${esc(L.file)}</code>`;
+    return;
+  }
+  const what = { official: "the official level", online: "the level", local: "your level" }[L.kind];
+  bar.innerHTML = `<b>Following Geometry Dash.</b> You last opened ${what} <b>${esc(L.name || "#" + L.id)}</b>${L.creator ? ` by ${esc(L.creator)}` : ""}${L.kind === "online" ? ` (#${L.id})` : ""} · ${ago(L.age)}`;
+}
+async function liveTick() {
+  clearTimeout(liveTimer);
+  if (!follow) return;
+  try {
+    const L = await api("/api/live"); liveState = L; paintLive(L);
+    if (L.present && L.seq !== lastSeq && !busy) {
+      lastSeq = L.seq;
+      await go(`Rating ${L.name || "your level"}…`, () => api("/api/live/rate"));
+      paintLive(liveState);
+    }
+  } catch (e) { paintLive(null, esc(e.message)); }
+  liveTimer = setTimeout(liveTick, 1200);
+}
+function setFollow(on) {
+  follow = on; lastSeq = null;
+  try { localStorage.setItem(FK, on ? "1" : "0"); } catch { }
+  paintLive(liveState); if (on) liveTick(); else clearTimeout(liveTimer);
+}
+$("#followBtn").onclick = () => setFollow(!follow);
+try { if (localStorage.getItem(FK) === "1") setFollow(true); } catch { }
+
+/* ---------- about ---------- */
+function aboutHTML() {
+  const m = about.metrics, s = specGradient();
+  return `<button class="ghost close" type="button" id="closeAbout">Close</button>
+  <h3>How the rating is made</h3>
+  <p>Starmeter reads the level as a timeline: it follows every portal and speed change, groups hazards into the inputs they demand, and measures how tight the corridors are in ship, wave, UFO and swing sections. A boosted-tree model, trained on ${num(m.n)} levels, turns those measurements into one number.</p>
+  <h3>How accurate is it?</h3>
+  <p>Measured on levels the model never saw (grouped by creator, so no level's author appears on both sides):</p>
+  <div class="metrics"><div><b>±${m.mae.toFixed(2)}★</b><small>average error</small></div><div><b>${Math.round(m.within_one * 100)}%</b><small>within ±1★</small></div><div><b>${Math.round(m.within_half * 100)}%</b><small>within ±0.5★</small></div><div><b>${m.spearman.toFixed(2)}</b><small>rank correlation</small></div></div>
+  <p>Normal levels are off by ±${m.mae_normal.toFixed(2)}★ on average, demons by ±${m.mae_demon.toFixed(2)}★ (about ±${m.mae_demon_tiers.toFixed(1)} GDDL tiers). Two decimals let you rank levels against each other; the range under the number is the real precision.</p>
+  <h3>The scale</h3>
+  <p>Levels up to Insane use RobTop's star scale, 1 to 9.99. Demons begin at 10 and climb 0.25★ for every GDDL tier, so an Easy Demon is about 10.0 and the hardest Extreme Demons approach 20.</p>
+  <div class="scale" style="background:${s}"></div><p style="display:flex;justify-content:space-between;margin:0;font:12px var(--mono)"><span>0</span><span>5</span><span>10 · demons start</span><span>15</span><span>20</span></p>
+  ${about.physics ? `<h3>The physics pass</h3>
+  <p>After the first answer, a bot plays the level with Geometry Dash's own physics at 240 steps per second: jump heights and gravity per speed, ship, UFO, wave, ball, robot and swing rules, pads, orbs, slopes and portals. It searches for the route with the fewest input changes that keeps clear of hazards, then replays that route with randomly shifted inputs to see where timing errors are punished. ${about.sim ? "The results feed a second model trained on the same levels." : "Its numbers are shown for insight; they do not change the rating."}</p>
+  ${about.sim ? `<div class="metrics"><div><b>±${about.sim.metrics.mae.toFixed(2)}★</b><small>average error with physics</small></div><div><b>${Math.round(about.sim.metrics.within_one * 100)}%</b><small>within ±1★</small></div><div><b>${about.sim.metrics.spearman.toFixed(2)}</b><small>rank correlation</small></div></div>` : ""}` : ""}
+  <h3>What it can't see</h3>
+  <ul><li>Memory, learning and surprise: a level that is hard because you must memorise it.</li><li>Visual noise, flashes and hidden or fake hitboxes that only show up on screen.</li><li>Objects moved or spawned by triggers. They are counted but not simulated${about.physics ? "; the physics pass skips them and reports how much of the route it could follow" : ""}.</li><li>How you play it: spamming, holding and buffering change real difficulty.</li><li>Platformer and two-player levels, which have no single fixed route.</li></ul>
+  <h3>Data and credits</h3>
+  <p>Trained on level data from the Geometry Dash servers with labels from <b>GDDL</b> community tier ratings (demons) and RobTop's star ratings (everything else). Object IDs follow the MIT-licensed gmdkit tables and the community object names compiled by Alphalaneous and others. Model trained ${about.trained}.</p>`;
+}
+$("#aboutBtn").onclick = () => { if (!about) return toast("Model not loaded yet"); $("#aboutBody").innerHTML = aboutHTML(); $("#about").showModal(); $("#closeAbout").onclick = () => $("#about").close(); };
+$("#about").addEventListener("click", e => { if (e.target.id === "about") e.target.close(); });
+$("#replay").addEventListener("close", replayEnd);
+$("#replay").addEventListener("click", e => { if (e.target.id === "replay") e.target.close(); });
+$("#closeReplay").onclick = () => $("#replay").close();
+$("#rplay").onclick = () => { if (!RV) return; if (RV.t >= RV.n - 1) RV.t = 0; RV.play = !RV.play; $("#rplay").textContent = RV.play ? "Pause" : "Play"; };
+$("#rseek").oninput = e => { if (RV) { RV.t = +e.target.value; RV.play = false; $("#rplay").textContent = "Play"; } };
+$$("#replay .seg button").forEach(b => b.onclick = () => { if (RV) { RV.speed = +b.dataset.s; $$("#replay .seg button").forEach(x => x.setAttribute("aria-pressed", x === b)); } });
+
+api("/api/about").then(a => { about = a; }, e => { $("#status").className = "status err"; $("#status").textContent = e.message; });
+showRecent();
+const deep = new URLSearchParams(location.search).get("id");
+if (deep && /^\d+$/.test(deep)) rateId(deep);
+</script>
+</body>
+</html>

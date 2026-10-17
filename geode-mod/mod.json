@@ -1,0 +1,21 @@
+{
+	"geode": "5.10.1",
+	"gd": {
+		"win": "2.2081"
+	},
+	"id": "starmeter.live",
+	"name": "Starmeter Live",
+	"version": "v1.1.0",
+	"developer": "Starmeter",
+	"description": "Shows the Starmeter star rating on the level page. Needs the Starmeter app running on this PC.",
+	"settings": {
+		"port": {
+			"type": "int",
+			"name": "Starmeter app port",
+			"description": "The port the Starmeter app prints when it starts (http://127.0.0.1:<port>). Normally 8765.",
+			"default": 8765,
+			"min": 1024,
+			"max": 65535
+		}
+	}
+}

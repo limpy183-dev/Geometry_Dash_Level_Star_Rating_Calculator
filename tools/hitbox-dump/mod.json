@@ -1,0 +1,11 @@
+{
+	"geode": "5.10.1",
+	"gd": {
+		"win": "2.2081"
+	},
+	"id": "starmeter.hitboxdump",
+	"name": "Starmeter Hitbox Dump",
+	"version": "v1.0.0",
+	"developer": "Starmeter",
+	"description": "One-shot tool: writes every object's type and hitbox to objdump.jsonl in this mod's save folder, then does nothing."
+}

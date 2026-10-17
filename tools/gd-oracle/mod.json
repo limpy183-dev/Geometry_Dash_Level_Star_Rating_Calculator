@@ -1,0 +1,11 @@
+{
+	"geode": "5.10.1",
+	"gd": {
+		"win": "2.2081"
+	},
+	"id": "starmeter.oracle",
+	"name": "Starmeter Oracle",
+	"version": "v1.0.0",
+	"developer": "Starmeter",
+	"description": "Calibration tool: plays queued levels with given inputs and records the player every physics tick. Does nothing without job files."
+}

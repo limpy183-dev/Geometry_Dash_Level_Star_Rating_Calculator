@@ -1,0 +1,7 @@
+# Rating a level needs only the Python standard library (Python 3.10+).
+# The optional physics pass (gdsim.py, simfeat.py) needs:
+numpy
+numba
+# Re-collecting data and re-training (collect.py, train.py, tools/) also needs:
+scipy
+scikit-learn
